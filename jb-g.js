@@ -1021,15 +1021,37 @@ let allDone = false,
           prepareMany: prepareMany, runPrepared: runPrepared,
         };
         if (params.get("afterglow") === "probe") {
-          ag.probeAfterglow(agCtx);
+          const probeResult = ag.probeAfterglow(agCtx);
+          mark(
+            probeResult && probeResult.ok ? "AG-PREFLIGHT-PASS" : "AG-PREFLIGHT-BLOCKED",
+            probeResult && probeResult.reasons
+              ? probeResult.reasons.join("; ")
+              : "probe returned no structured result",
+          );
+          // A passing preflight is not a jailbreak. Keep it visually distinct.
+          if (!SHOW_LOG && document.body) {
+            const msg = document.getElementById("msg");
+            if (msg) msg.textContent = probeResult && probeResult.ok
+              ? "PREFLIGHT PASS — NO KERNEL EXPLOIT ATTEMPTED"
+              : "PREFLIGHT BLOCKED — NO KERNEL EXPLOIT ATTEMPTED";
+            document.body.className = probeResult && probeResult.ok ? "done" : "fail";
+          }
         } else {
-          await ag.runAfterglow(agCtx);
+          const agResult = await ag.runAfterglow(agCtx);
+          const agSucceeded = !!(agResult && typeof agResult === "object");
+          mark(
+            agSucceeded ? "AG-RUN-RETURNED-SUCCESS" : "AG-RUN-RETURNED-FAILURE",
+            agSucceeded
+              ? "runAfterglow returned its completion interface"
+              : "runAfterglow returned false; no success will be displayed",
+          );
+          finishUI(agSucceeded);
         }
       } catch (agError) {
         mark("AG-FAIL", agError && agError.message ? agError.message : String(agError));
+        if (!SHOW_LOG) finishUI(false);
       }
       allDone = true;
-      finishUI(true);
       // Swap the address out. The browser restores the last one after a
       // reload, and an enabler that restarts SceShellUI causes exactly that
       // reload -- so the last address must not be the one that runs the

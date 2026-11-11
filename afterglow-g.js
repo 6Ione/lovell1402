@@ -1924,16 +1924,21 @@ async function attempt(ctx, opts) {
   }
   say("  pinned to core " + pin.core + " of [" + pin.allowed + "]");
 
-  /* Is the kernel already open? A reload on a console that has been done once
-     would otherwise burn triggers against a kernel that is already patched --
-     and the enabler restarting SceShellUI is exactly what makes the browser
-     reload. rwx mmap is the cheapest question that only answers yes after a
-     successful run. */
+  /* Conservative stop condition retained for this test build.
+     RWX mmap/mprotect is a user-process permission test; by itself it does
+     NOT prove kernel patch state or a prior jailbreak. Log the observation
+     precisely and stop rather than risk firing the kernel trigger while the
+     guard's semantics remain unresolved. */
   {
     const m0 = sc(S.mmap, 0, 0x4000, 3, 0x1002, -1, 0);
-    if (m0.i32 !== -1 && sc(S.mprotect, v(m0.lo, m0.hi), 0x4000, 7).i32 === 0) {
-      say("  this kernel is already open -- a run has succeeded on this boot.");
-      say("  Not firing again; reboot the console for a fresh one.");
+    const mmapOk = m0.i32 !== -1;
+    const mp = mmapOk ? sc(S.mprotect, v(m0.lo, m0.hi), 0x4000, 7) : null;
+    const rwxOk = !!(mp && mp.i32 === 0);
+    say("  userland RWX guard: mmap=" + (mmapOk ? "ok" : "failed")
+      + ", mprotect=" + (rwxOk ? "ok" : mmapOk ? "failed" : "not-run"));
+    if (rwxOk) {
+      say("  GUARD-TRIPPED: userland RWX mapping succeeded.");
+      say("  This does not establish kernel-open state; stopping safely.");
       return false;
     }
   }

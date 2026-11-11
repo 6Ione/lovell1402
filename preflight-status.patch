@@ -1,0 +1,75 @@
+--- /mnt/data/mission_test/original/afterglow-1402-work/jb-g.js	2026-11-11 19:23:49.000000000 +0000
++++ /mnt/data/afterglow-1402-preflight-test/jb-g.js	2026-11-11 20:42:15.881987061 +0000
+@@ -1021,15 +1021,37 @@
+           prepareMany: prepareMany, runPrepared: runPrepared,
+         };
+         if (params.get("afterglow") === "probe") {
+-          ag.probeAfterglow(agCtx);
++          const probeResult = ag.probeAfterglow(agCtx);
++          mark(
++            probeResult && probeResult.ok ? "AG-PREFLIGHT-PASS" : "AG-PREFLIGHT-BLOCKED",
++            probeResult && probeResult.reasons
++              ? probeResult.reasons.join("; ")
++              : "probe returned no structured result",
++          );
++          // A passing preflight is not a jailbreak. Keep it visually distinct.
++          if (!SHOW_LOG && document.body) {
++            const msg = document.getElementById("msg");
++            if (msg) msg.textContent = probeResult && probeResult.ok
++              ? "PREFLIGHT PASS — NO KERNEL EXPLOIT ATTEMPTED"
++              : "PREFLIGHT BLOCKED — NO KERNEL EXPLOIT ATTEMPTED";
++            document.body.className = probeResult && probeResult.ok ? "done" : "fail";
++          }
+         } else {
+-          await ag.runAfterglow(agCtx);
++          const agResult = await ag.runAfterglow(agCtx);
++          const agSucceeded = !!(agResult && typeof agResult === "object");
++          mark(
++            agSucceeded ? "AG-RUN-RETURNED-SUCCESS" : "AG-RUN-RETURNED-FAILURE",
++            agSucceeded
++              ? "runAfterglow returned its completion interface"
++              : "runAfterglow returned false; no success will be displayed",
++          );
++          finishUI(agSucceeded);
+         }
+       } catch (agError) {
+         mark("AG-FAIL", agError && agError.message ? agError.message : String(agError));
++        if (!SHOW_LOG) finishUI(false);
+       }
+       allDone = true;
+-      finishUI(true);
+       // Swap the address out. The browser restores the last one after a
+       // reload, and an enabler that restarts SceShellUI causes exactly that
+       // reload -- so the last address must not be the one that runs the
+--- /mnt/data/mission_test/original/afterglow-1402-work/afterglow-g.js	2026-11-11 19:27:55.000000000 +0000
++++ /mnt/data/afterglow-1402-preflight-test/afterglow-g.js	2026-11-11 20:42:15.883958416 +0000
+@@ -1924,16 +1924,21 @@
+   }
+   say("  pinned to core " + pin.core + " of [" + pin.allowed + "]");
+ 
+-  /* Is the kernel already open? A reload on a console that has been done once
+-     would otherwise burn triggers against a kernel that is already patched --
+-     and the enabler restarting SceShellUI is exactly what makes the browser
+-     reload. rwx mmap is the cheapest question that only answers yes after a
+-     successful run. */
++  /* Conservative stop condition retained for this test build.
++     RWX mmap/mprotect is a user-process permission test; by itself it does
++     NOT prove kernel patch state or a prior jailbreak. Log the observation
++     precisely and stop rather than risk firing the kernel trigger while the
++     guard's semantics remain unresolved. */
+   {
+     const m0 = sc(S.mmap, 0, 0x4000, 3, 0x1002, -1, 0);
+-    if (m0.i32 !== -1 && sc(S.mprotect, v(m0.lo, m0.hi), 0x4000, 7).i32 === 0) {
+-      say("  this kernel is already open -- a run has succeeded on this boot.");
+-      say("  Not firing again; reboot the console for a fresh one.");
++    const mmapOk = m0.i32 !== -1;
++    const mp = mmapOk ? sc(S.mprotect, v(m0.lo, m0.hi), 0x4000, 7) : null;
++    const rwxOk = !!(mp && mp.i32 === 0);
++    say("  userland RWX guard: mmap=" + (mmapOk ? "ok" : "failed")
++      + ", mprotect=" + (rwxOk ? "ok" : mmapOk ? "failed" : "not-run"));
++    if (rwxOk) {
++      say("  GUARD-TRIPPED: userland RWX mapping succeeded.");
++      say("  This does not establish kernel-open state; stopping safely.");
+       return false;
+     }
+   }
